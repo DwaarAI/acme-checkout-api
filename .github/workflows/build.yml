@@ -1,0 +1,56 @@
+# Builds the image, pushes it to GHCR and Amazon ECR, and rolls the ECS service.
+# DEMO: deliberately unsafe for CI scanners (pull_request_target with a checkout of the PR head,
+# an expression from the PR in a shell step, unpinned actions, broad permissions).
+# GitHub Actions is disabled on this repository, so this workflow never runs.
+name: build
+on:
+  push:
+    branches: [main]
+  pull_request_target:
+    types: [opened, synchronize]
+
+permissions: write-all
+
+env:
+  AWS_REGION: eu-west-1
+  ECR_REPOSITORY: acme-checkout-api
+  GHCR_IMAGE: ghcr.io/dwaarai/acme-checkout-api
+  ECS_CLUSTER: acme-checkout
+  ECS_SERVICE: acme-checkout-api
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Announce
+        run: echo "Building ${{ github.event.pull_request.title }}"
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::706124985399:role/acme-checkout-deploy
+          aws-region: ${{ env.AWS_REGION }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          build-args: ACME_VERSION=${{ github.sha }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+            ${{ env.GHCR_IMAGE }}:${{ github.sha }}
+            ${{ env.GHCR_IMAGE }}:latest
+      - name: Deploy
+        run: |
+          aws cloudformation deploy --stack-name acme-checkout-api --template-file deploy/stack.yaml \
+            --parameter-overrides ImageUri=${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }} \
+            --capabilities CAPABILITY_NAMED_IAM

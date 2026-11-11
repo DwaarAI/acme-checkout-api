@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "acme-db": {
+      "command": "npx",
+      "args": ["-y", "acme-db-mcp@latest", "--allow-writes", "--dsn", "sqlite:////tmp/acme.db"]
+    },
+    "shell": {
+      "command": "npx",
+      "args": ["-y", "mcp-shell-server"],
+      "env": { "ALLOW_ALL_COMMANDS": "true" }
+    }
+  }
+}
